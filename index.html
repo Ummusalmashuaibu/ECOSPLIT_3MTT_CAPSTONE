@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EcoSplit - Fair Bill Splitting</title>
+<style>
+*{box-sizing:border-box;font-family:system-ui}body{margin:0;background:#f5f7f9;color:#222;max-width:600px;margin:auto;padding:16px}
+h1{color:#0a7a42;text-align:center}.card{background:#fff;padding:16px;border-radius:12px;box-shadow:0 2px 8px #0001;margin-bottom:16px}
+input,button{width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ddd;font-size:16px}
+button{background:#0a7a42;color:#fff;border:none;font-weight:700}button:active{opacity:.8}
+.small{font-size:13px;color:#666}.owe{color:#d00;font-weight:700}.get{color:#0a7a42;font-weight:700}
+.expense{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #eee;padding:8px 0}
+</style>
+</head>
+<body>
+<h1>EcoSplit 🌱</h1>
+<p class="small" style="text-align:center">Fair bill splitting for shared households - 3MTT Capstone by Salamatu Mohammed</p>
+
+<div class="card">
+<h3>Create Group</h3>
+<input id="groupName" placeholder="Group Name e.g. Kaduna Lodge">
+<input id="memberName" placeholder="Add member name e.g. Aisha">
+<button onclick="addMember()">Add Member</button>
+<div id="membersList" class="small"></div>
+<button onclick="createGroup()">Save Group</button>
+</div>
+
+<div class="card">
+<h3>Add Expense + Receipt</h3>
+<input id="desc" placeholder="What? e.g. NEPA Bill">
+<input id="amount" type="number" placeholder="Amount ₦ e.g. 5000">
+<select id="payer" style="width:100%;padding:12px;margin:6px 0;border-radius:8px;border:1px solid #ddd"></select>
+<input type="file" id="receipt" accept="image/*">
+<button onclick="addExpense()">Add Expense</button>
+</div>
+
+<div class="card">
+<h3>Summary</h3>
+<div>Total Spent: ₦<span id="total">0</span></div>
+<div>Equal Share: ₦<span id="share">0</span></div>
+<div id="balances"></div>
+<hr>
+<h4>Who Pays Who (Simplified)</h4>
+<div id="settle"></div>
+<button onclick="shareWhatsApp()">Share on WhatsApp 💬</button>
+</div>
+
+<div class="card">
+<h3>All Expenses</h3>
+<div id="expenses"></div>
+</div>
+
+<script>
+let members=[], expenses=[], group="My Group";
+let mDiv=document.getElementById('membersList');
+function addMember(){
+ let n=document.getElementById('memberName').value.trim();
+ if(!n) return alert("Enter name");
+ members.push({name:n,paid:0}); document.getElementById('memberName').value="";
+ renderMembers();
+}
+function renderMembers(){
+ mDiv.innerHTML=members.map(m=>`• ${m.name}`).join("<br>");
+ let sel=document.getElementById('payer'); sel.innerHTML=members.map(m=>`<option>${m.name}</option>`).join("");
+ localStorage.setItem("ecosplit_members",JSON.stringify(members));
+}
+function createGroup(){
+ let g=document.getElementById('groupName').value.trim();
+ if(g) group=g; alert("Group '"+group+"' saved! Members: "+members.length);
+}
+function addExpense(){
+ let d=document.getElementById('desc').value, a=parseFloat(document.getElementById('amount').value), p=document.getElementById('payer').value;
+ if(!d||!a||!p) return alert("Fill all fields");
+ let file=document.getElementById('receipt').files[0];
+ let exp={id:Date.now(),desc:d,amount:a,payer:p,receiptName:file?file.name:"No receipt"};
+ expenses.push(exp);
+ document.getElementById('desc').value=""; document.getElementById('amount').value="";
+ saveAndRender();
+}
+function saveAndRender(){
+ localStorage.setItem("ecosplit_expenses",JSON.stringify(expenses));
+ renderAll();
+}
+function renderAll(){
+ let total=expenses.reduce((s,e)=>s+e.amount,0);
+ document.getElementById('total').innerText=total.toFixed(0);
+ let share=members.length?total/members.length:0;
+ document.getElementById('share').innerText=share.toFixed(0);
+ let paidMap={}; members.forEach(m=>paidMap[m.name]=0); expenses.forEach(e=>paidMap[e.payer]+=e.amount);
+ let balHTML=""; let balances=[];
+ members.forEach(m=>{let bal=paidMap[m.name]-share; balances.push({name:m.name,bal:bal}); balHTML+=`${m.name}: Paid ₦${paidMap[m.name]} → Balance <span class="${bal<0?'owe':'get'}">₦${bal.toFixed(0)}</span><br>`;});
+ document.getElementById('balances').innerHTML=balHTML;
+ // settlement
+ let debtors=balances.filter(b=>b.bal<0).map(b=>({name:b.name,amt:-b.bal})).sort((a,b)=>a.amt-b.amt);
+ let creditors=balances.filter(b=>b.bal>0).map(b=>({name:b.name,amt:b.bal})).sort((a,b)=>b.amt-a.amt);
+ let i=0,j=0, html="";
+ while(i<debtors.length && j<creditors.length){
+  let d=debtors[i], c=creditors[j]; let pay=Math.min(d.amt,c.amt);
+  html+=`${d.name} pays ₦${pay.toFixed(0)} to ${c.name}<br>`;
+  d.amt-=pay; c.amt-=pay; if(d.amt<1) i++; if(c.amt<1) j++;
+ }
+ document.getElementById('settle').innerHTML=html||"All settled!";
+ document.getElementById('expenses').innerHTML=expenses.map(e=>`<div class="expense"><div><b>${e.desc}</b><br><small>${e.payer} paid ₦${e.amount} • ${e.receiptName}</small></div><button style="width:auto;padding:6px 10px;background:#d00" onclick="delExp(${e.id})">X</button></div>`).join("") || "No expenses yet";
+}
+function delExp(id){ expenses=expenses.filter(e=>e.id!==id); saveAndRender(); }
+function shareWhatsApp(){
+ let text=`EcoSplit Summary for ${group}:\nTotal: ₦${document.getElementById('total').innerText}\nShare: ₦${document.getElementById('share').innerText}\n\n${document.getElementById('settle').innerText}\nView app: your link`;
+ window.open("https://wa.me/?text="+encodeURIComponent(text));
+}
+// load
+try{members=JSON.parse(localStorage.getItem("ecosplit_members")||"[]"); expenses=JSON.parse(localStorage.getItem("ecosplit_expenses")||"[]");}catch(e){}
+renderMembers(); renderAll();
+</script>
+</body>
+</html>
+---
+
